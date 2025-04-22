@@ -1,9 +1,12 @@
-const express = require("express");
-const mongoose = require("mongoose");
-const { SerialPort } = require("serialport");
-const { ReadlineParser } = require("@serialport/parser-readline");
-const cors = require("cors");
-const { connectDB } = require("./db/connection");
+import { ReadlineParser } from "@serialport/parser-readline";
+import cors from "cors";
+import dotenv from "dotenv";
+import express from "express";
+import mongoose from "mongoose";
+import { SerialPort } from "serialport";
+import { connectDB } from "./db/connection.js";
+
+dotenv.config();
 
 const app = express();
 app.use(express.json());
@@ -20,9 +23,19 @@ const sensorSchema = new mongoose.Schema({
 });
 const SensorData = mongoose.model("SensorData", sensorSchema);
 
-// Add these variables at the top level, after the model definition
+// Add these variables at the top level
 let latestSensorData = null;
-const SAVE_INTERVAL = 10 * 60 * 1000; // 10 minutes in milliseconds
+let SAVE_INTERVAL = 10 * 60 * 1000; // Default 10 minutes in milliseconds
+let serialPort = null;
+
+// Function to send command to Arduino
+const sendCommand = (command) => {
+  if (serialPort && serialPort.isOpen) {
+    serialPort.write(command + "\n");
+  } else {
+    console.error("❌ Serial port is not open");
+  }
+};
 
 // ✅ Setup Serial Communication with Arduino
 const SERIAL_PORT = process.env.SERIAL_PORT || "COM3";
@@ -30,7 +43,7 @@ console.log("🔌 Attempting to connect to port:", SERIAL_PORT);
 
 // Add a delay before opening the port
 setTimeout(() => {
-  const serialPort = new SerialPort({ path: SERIAL_PORT, baudRate: 9600 });
+  serialPort = new SerialPort({ path: SERIAL_PORT, baudRate: 9600 });
 
   // Add error handling for serial port
   serialPort.on("error", (err) => {
@@ -44,6 +57,12 @@ setTimeout(() => {
       SERIAL_PORT,
       "is the correct port in Device Manager"
     );
+  });
+
+  serialPort.on("open", () => {
+    console.log("✅ Serial port opened successfully");
+    // Request initial status
+    sendCommand("STATUS");
   });
 
   const parser = serialPort.pipe(new ReadlineParser({ delimiter: "\n" }));
@@ -65,6 +84,15 @@ setTimeout(() => {
             ldr: parseInt(values[3]),
           };
           console.log("📝 Latest reading stored:", latestSensorData);
+
+          // Save to MongoDB
+          try {
+            const newEntry = new SensorData(latestSensorData);
+            await newEntry.save();
+            console.log("✅ Data saved to MongoDB:", latestSensorData);
+          } catch (err) {
+            console.error("❌ Error Saving to MongoDB:", err.message);
+          }
         }
       }
     } catch (err) {
@@ -72,14 +100,14 @@ setTimeout(() => {
     }
   });
 
-  // Set up interval to save data every 10 minutes
+  // Set up interval to save data based on SAVE_INTERVAL
   setInterval(async () => {
     if (latestSensorData) {
       try {
         const newEntry = new SensorData(latestSensorData);
         await newEntry.save();
         console.log("✅ Data saved to MongoDB:", latestSensorData);
-        console.log("⏰ Next save in 10 minutes...");
+        console.log("⏰ Next save in", SAVE_INTERVAL / 1000, "seconds...");
       } catch (err) {
         console.error("❌ Error Saving to MongoDB:", err.message);
       }
@@ -91,19 +119,73 @@ setTimeout(() => {
 app.get("/api/sensors", async (req, res) => {
   try {
     const data = await SensorData.find().sort({ timestamp: -1 }).limit(10);
+    console.log(`📊 Found ${data.length} latest sensor readings`);
     res.json(data);
   } catch (err) {
+    console.error("❌ Error fetching latest data:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
 
-// Add this new route to get all readings
-app.get("/api/sensors/all", async (req, res) => {
+// Add this new route to get all readings with time range
+app.get("/api/sensors/range", async (req, res) => {
   try {
-    const data = await SensorData.find().sort({ timestamp: -1 });
-    console.log(`📊 Found ${data.length} sensor readings in database`);
+    const { start, end, limit } = req.query;
+    const query = {};
+
+    if (start && end) {
+      query.timestamp = {
+        $gte: new Date(start),
+        $lte: new Date(end),
+      };
+    }
+
+    const data = await SensorData.find(query)
+      .sort({ timestamp: -1 })
+      .limit(limit ? parseInt(limit) : 1000);
+
+    console.log(
+      `📊 Found ${data.length} sensor readings in database for the specified range`
+    );
     res.json(data);
   } catch (err) {
+    console.error("❌ Error fetching data range:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Add endpoint to update sampling interval
+app.post("/api/settings/sampling-interval", async (req, res) => {
+  try {
+    const { interval } = req.body;
+    if (!interval || interval < 1) {
+      return res.status(400).json({ error: "Invalid interval" });
+    }
+
+    // Convert to milliseconds and send to Arduino
+    const intervalMs = interval * 1000;
+    sendCommand(`INTERVAL:${intervalMs}`);
+
+    SAVE_INTERVAL = intervalMs;
+    console.log(
+      "✅ Sampling interval updated to:",
+      SAVE_INTERVAL / 1000,
+      "seconds"
+    );
+    res.json({ success: true, interval: SAVE_INTERVAL / 1000 });
+  } catch (err) {
+    console.error("❌ Error updating sampling interval:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Add endpoint to force immediate reading
+app.post("/api/sensors/read", async (req, res) => {
+  try {
+    sendCommand("READ");
+    res.json({ success: true, message: "Reading command sent to Arduino" });
+  } catch (err) {
+    console.error("❌ Error sending read command:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
