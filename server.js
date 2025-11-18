@@ -403,6 +403,72 @@ app.post("/api/settings/sampling-interval", (req, res) => {
   }
 });
 
+// ✅ POST /api/sensors/temp/enable - Enable temperature/humidity readings
+app.post("/api/sensors/temp/enable", (req, res) => {
+  try {
+    commandQueue = "TEMP:ON";
+    console.log("📥 TEMP:ON command queued");
+    res.json({
+      success: true,
+      message: "Temperature/Humidity readings enabled",
+    });
+  } catch (err) {
+    console.error("❌ Error enabling temp sensor:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ✅ POST /api/sensors/temp/disable - Disable temperature/humidity readings
+app.post("/api/sensors/temp/disable", (req, res) => {
+  try {
+    commandQueue = "TEMP:OFF";
+    console.log("📥 TEMP:OFF command queued");
+    res.json({
+      success: true,
+      message: "Temperature/Humidity readings disabled",
+    });
+  } catch (err) {
+    console.error("❌ Error disabling temp sensor:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ✅ POST /api/sensors/light/enable - Enable light (LDR) readings
+app.post("/api/sensors/light/enable", (req, res) => {
+  try {
+    commandQueue = "LIGHT:ON";
+    console.log("📥 LIGHT:ON command queued");
+    res.json({ success: true, message: "Light (LDR) readings enabled" });
+  } catch (err) {
+    console.error("❌ Error enabling light sensor:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ✅ POST /api/sensors/light/disable - Disable light (LDR) readings
+app.post("/api/sensors/light/disable", (req, res) => {
+  try {
+    commandQueue = "LIGHT:OFF";
+    console.log("📥 LIGHT:OFF command queued");
+    res.json({ success: true, message: "Light (LDR) readings disabled" });
+  } catch (err) {
+    console.error("❌ Error disabling light sensor:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ✅ POST /api/device/status-request - Request device status
+app.post("/api/device/status-request", (req, res) => {
+  try {
+    commandQueue = "STATUS";
+    console.log("📥 STATUS command queued");
+    res.json({ success: true, message: "Status request queued" });
+  } catch (err) {
+    console.error("❌ Error requesting status:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // ✅ Start Express Server
 const SERVER_PORT = process.env.PORT || 5000;
 app.listen(SERVER_PORT, () => {
@@ -426,6 +492,22 @@ app.listen(SERVER_PORT, () => {
   );
   console.log(
     `   - GET  http://localhost:${SERVER_PORT}/api/device/connection (Connection status)`
+  );
+  console.log(`\n🎛️  Sensor Control Endpoints:`);
+  console.log(
+    `   - POST http://localhost:${SERVER_PORT}/api/sensors/temp/enable (Enable temp/humidity)`
+  );
+  console.log(
+    `   - POST http://localhost:${SERVER_PORT}/api/sensors/temp/disable (Disable temp/humidity)`
+  );
+  console.log(
+    `   - POST http://localhost:${SERVER_PORT}/api/sensors/light/enable (Enable light sensor)`
+  );
+  console.log(
+    `   - POST http://localhost:${SERVER_PORT}/api/sensors/light/disable (Disable light sensor)`
+  );
+  console.log(
+    `   - POST http://localhost:${SERVER_PORT}/api/device/status-request (Request device status)`
   );
   console.log(
     `\n💡 Quick Test: Open http://localhost:${SERVER_PORT}/api/sensors/latest in your browser\n`
