@@ -2,7 +2,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
 import mongoose from "mongoose";
-import { connectDB } from "./db/connection.js";
+import { connectDB } from "../db/connection.js";
 
 dotenv.config();
 
@@ -10,8 +10,26 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// ✅ Connect to MongoDB
-connectDB();
+// Initialize MongoDB connection (will be reused across invocations)
+let dbConnected = false;
+
+const ensureDBConnection = async () => {
+  if (!dbConnected) {
+    try {
+      await connectDB();
+      dbConnected = true;
+    } catch (err) {
+      console.error("❌ Failed to connect to MongoDB:", err);
+      dbConnected = false;
+    }
+  }
+};
+
+// Middleware to ensure DB connection before handling requests
+app.use(async (req, res, next) => {
+  await ensureDBConnection();
+  next();
+});
 
 const sensorSchema = new mongoose.Schema({
   temperature: Number,
@@ -42,6 +60,8 @@ const SensorData = mongoose.model("SensorData", sensorSchema);
 const Alert = mongoose.model("Alert", alertSchema);
 const DeviceStatus = mongoose.model("DeviceStatus", deviceStatusSchema);
 
+// ⚠️ NOTE: In-memory state won't persist across serverless invocations
+// For production, consider using a database or external storage (Redis, etc.)
 // Command queue for ESP32 to poll
 let commandQueue = null;
 
@@ -552,71 +572,5 @@ app.post("/api/device/status-request", (req, res) => {
   }
 });
 
-// ✅ Start Express Server
-const SERVER_PORT = process.env.PORT || 5000;
-app.listen(SERVER_PORT, () => {
-  console.log(`🚀 Express server running on port ${SERVER_PORT}`);
-  console.log(`\n📡 ESP32 Connection Endpoints:`);
-  console.log(
-    `   - POST http://localhost:${SERVER_PORT}/api/sensors/data (ESP32 sends data)`
-  );
-  console.log(
-    `   - GET  http://localhost:${SERVER_PORT}/api/device/commands (ESP32 polls for commands)`
-  );
-  console.log(
-    `   - POST http://localhost:${SERVER_PORT}/api/device/status-update (ESP32 sends status)`
-  );
-  console.log(`\n🔍 View Sensor Data:`);
-  console.log(
-    `   - GET  http://localhost:${SERVER_PORT}/api/sensors/latest (Latest reading)`
-  );
-  console.log(
-    `   - GET  http://localhost:${SERVER_PORT}/api/sensors (Last 10 readings)`
-  );
-  console.log(
-    `   - GET  http://localhost:${SERVER_PORT}/api/sensors/history?period=1m (Last 1 minute)`
-  );
-  console.log(
-    `   - GET  http://localhost:${SERVER_PORT}/api/sensors/history?period=5m (Last 5 minutes)`
-  );
-  console.log(
-    `   - GET  http://localhost:${SERVER_PORT}/api/sensors/history?period=15m (Last 15 minutes)`
-  );
-  console.log(
-    `   - GET  http://localhost:${SERVER_PORT}/api/sensors/history?period=30m (Last 30 minutes)`
-  );
-  console.log(
-    `   - GET  http://localhost:${SERVER_PORT}/api/sensors/history?period=1h (Last 1 hour)`
-  );
-  console.log(
-    `   - GET  http://localhost:${SERVER_PORT}/api/sensors/history?period=6h (Last 6 hours)`
-  );
-  console.log(
-    `   - GET  http://localhost:${SERVER_PORT}/api/sensors/history?period=1d (Last 1 day)`
-  );
-  console.log(
-    `   - GET  http://localhost:${SERVER_PORT}/api/sensors/history?period=1w (Last week)`
-  );
-  console.log(
-    `   - GET  http://localhost:${SERVER_PORT}/api/device/connection (Connection status)`
-  );
-  console.log(`\n🎛️  Sensor Control Endpoints:`);
-  console.log(
-    `   - POST http://localhost:${SERVER_PORT}/api/sensors/temp/enable (Enable temp/humidity)`
-  );
-  console.log(
-    `   - POST http://localhost:${SERVER_PORT}/api/sensors/temp/disable (Disable temp/humidity)`
-  );
-  console.log(
-    `   - POST http://localhost:${SERVER_PORT}/api/sensors/light/enable (Enable light sensor)`
-  );
-  console.log(
-    `   - POST http://localhost:${SERVER_PORT}/api/sensors/light/disable (Disable light sensor)`
-  );
-  console.log(
-    `   - POST http://localhost:${SERVER_PORT}/api/device/status-request (Request device status)`
-  );
-  console.log(
-    `\n💡 Quick Test: Open http://localhost:${SERVER_PORT}/api/sensors/latest in your browser\n`
-  );
-});
+// Export the Express app as a serverless function
+export default app;
